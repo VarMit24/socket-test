@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Socket Test</title>
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+	<script src="http://ajax.googleapis.com/ajax/libs/angularjs/1.0.4/angular.js">
+    </script>
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="https://code.jquery.com/jquery-3.2.1.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4=" crossorigin="anonymous"></script>
+	<style type="text/css">
+		.pointer{
+			cursor: pointer;
+		}
+		#privateUsersNav{
+			overflow-x: auto;
+		}
+		.chatView{
+			overflow-y: auto;
+		}
+		.text-right{
+			text-align: right;
+		}
+		.alertMessage{
+			    position: absolute;
+    		right: 20px;
+    		bottom: 50px;
+		}
+
+	</style>
+</head>
+<body ng-app="myApp">
+	<div class="container" ng-controller="myController" ng-cloak>
+		<div id="userFormArea" class="row" ng-show="!isUserEntered">
+			<h3>User Form</h3>
+			<form >
+				<div class="form-group">
+					<label for="username">User Name:</label>
+					<input autocomplete="off" type="text" class="form-control" ng-model="username" id="username" placeholder="Enter Username">
+				</div>
+				<input type="button" class="btn btn-primary" ng-click="userForm(username)" id="userForm" value ="Submit"/>
+			</form>
+		</div>
+		<div id="chatArea" class="row" ng-show="isUserEntered">
+			<div class="col-xs-3 col-md-3 col-lg-3">
+				<div class="jumbotron">
+					<h4>Online Users:</h4>
+					<ul id="userList" class="list-groups">
+						<li class="list-groups-item text-success" ng-repeat="user in onlineUsersList">{{user}}</li>
+					</ul>
+				</div>
+			</div>
+			<div class="col-xs-9 col-md-9 col-lg-9">
+				<ul class="nav nav-pills">
+  					<li role="presentation" class="pointer" ng-click="openChatArea('Group')" ng-class="{'active':isGroupChat}" id="groupChatNav"><a>Group Chat</a></li>
+  					<li role="presentation" ng-class="{'active':!isGroupChat}" ng-click="openChatArea('Private')" id="privateChatNav" class="pointer"><a>Private Chat</a></li>
+				</ul>
+				<div id="groupChatArea" ng-show="isGroupChat">
+					<h3>Group Chat</h3>
+					<ul id="chats" class="list-groups chatView">
+						<li class="list-groups-item" ng-repeat="chats in groupChats">
+							<strong>{{chats.user}}: </strong>
+							<span>{{chats.msg}}</span>
+						</li>
+					</ul>
+					<form >
+						<div class="form-group">
+							<label for="message">Message:</label>
+							<textarea class="form-control" ng-model="groupMessage" id="message" placeholder="Enter message"></textarea>
+						</div>
+						<input type="button" class="btn btn-primary" ng-click="groupMessageForm()" id="messageForm" value="Send Message"/>
+					</form>
+				</div>
+				<div id="privateChatArea" ng-hide="isGroupChat">
+					<h3>Private Chat</h3>
+					<label for="username">To (User Name):</label>
+					<input type="text" class="form-control" id="privateUser" ng-model="privateUser" placeholder="Add the Username to whom you want to send the message">
+					<br>
+					<input type="button" class="btn btn-primary" id="privateUserAdd" ng-click="addPrivateUser()" value="Add User"/>
+					<br>
+					<br>
+					<ul class="nav nav-pills" id="privateUsersNav">
+	  					<li role="presentation" class="pointer" ng-click="openPrivateChatArea(user)" ng-repeat="user in privateUsersList" ng-class="{'active':selectedPrivateUser == user}" id="groupChatNav"><a>{{user}}</a></li>
+					</ul>
+					<div id="privateUserChatArea" ng-show="privateChatFormArea">
+						<ul id="privateChats" class="list-groups chatView">
+							<li class="list-groups-item" style="list-style: none;" ng-repeat="chats in privateChatByUser">
+								<span style="width:60%;"  ng-class="{ 'pull-left': (chats.fromUser == username), 'pull-right': (chats.toUser == username), 'text-right':(chats.toUser == username)}">{{chats.msg}}</span>
+							</li>
+						</ul>
+						<form >
+							<div class="form-group">
+								<label for="message">Private Message:</label>
+								<textarea class="form-control" ng-model="privateMessage" id="privateMessage" placeholder="Enter message"></textarea>
+							</div>
+							<input type="button" ng-click="privateMessageForm()" class="btn btn-primary" id="privateMessageForm" value="Send Message"/>
+						</form>
+					</div>
+					
+				</div>
+				
+			</div>
+		</div>
+		<div id="groupAlert" class="alert alert-info alertMessage" ng-show="newGroupMessage" role="alert" >
+			You have new Group message.
+		</div>
+	</div>
+	<script type="text/javascript">
+
+		$(function() {
+			$('#chats').height($(window).height()/2);
+			$('#privateChats').height($(window).height()/3);
+		})
+
+  		angular.module("myApp",[])
+  			.factory('socket', function ($rootScope) {
+			  var socket = io.connect();
+			  return {
+			    on: function (eventName, callback) {
+			      socket.on(eventName, function () {  
+			        var args = arguments;
+			        $rootScope.$apply(function () {
+			          callback.apply(socket, args);
+			        });
+			      });
+			    },
+			    emit: function (eventName, data, callback) {
+			      socket.emit(eventName, data, function () {
+			        var args = arguments;
+			        $rootScope.$apply(function () {
+			          if (callback) {
+			            callback.apply(socket, args);
+			          }
+			        });
+			      })
+			    }
+			  };
+			})
+  			.controller("myController",function($scope,socket){
+  				$scope.newGroupMessage = false;
+  				$scope.isGroupChat = true;
+  				$scope.isUserEntered = false;
+  				$scope.onlineUsersList = [];
+  				$scope.groupChats = [];
+  				$scope.privateUsersList = [];
+  				$scope.selectedPrivateUser = ""
+  				$scope.privateChatFormArea = false;
+  				$scope.privateChatByUser = [];
+  				$scope.privateChatsByAllUser = {};
+
+  				$scope.userForm = function(username){
+  					var newUser = username.charAt(0).toUpperCase() + username.substr(1).toLowerCase();
+  					socket.emit('new user',newUser,function(data){
+  						if(data){
+  							$scope.isUserEntered = true;
+  						}
+  						else{
+  							$scope.username = ""
+  							alert("User already present with same name.")
+  						}
+  					})
+  				}
+
+  				$scope.openChatArea= function(chatType){
+  					if(chatType == 'Group'){
+  						$scope.isGroupChat = true;
+  					}
+  					else{
+  						$scope.isGroupChat = false;
+  					}
+  				}
+
+  				socket.on('userList', function(data){
+		  			$scope.onlineUsersList = []
+		  			for (var i = data.length - 1; i >= 0; i--) {
+		  				$scope.onlineUsersList.push(data[i]);
+		  			}
+		  		});
+
+		  		$scope.groupMessageForm = function(){
+		  			socket.emit('chat message',$scope.groupMessage);
+		  			$scope.groupMessage = ""
+		  		}
+		  		socket.on('chat message', function(data){
+		  			if(!$scope.isGroupChat){
+		  				$scope.newGroupMessage = true;
+		  				setTimeout(function() {
+		  					$scope.newGroupMessage = false;
+		  				}, 2000);
+		  			}
+		  			$scope.groupChats.push(data);
+		  		})
+		  		function addPrivateUserToList(user){
+		  			var flag = true;
+		  			for (var i = $scope.privateUsersList.length - 1; i >= 0; i--) {
+		  				if($scope.privateUsersList[i] == user){
+		  					flag = false;
+		  					break;
+		  				}
+		  			}
+		  			if(flag){
+		  				var fl = true;
+		  				for (var i = $scope.onlineUsersList.length - 1; i >= 0; i--) {
+			  				if($scope.onlineUsersList[i] == user){
+			  					fl = false;
+			  					break;
+			  				}
+			  			}
+			  			if(fl)
+			  				alert("User is either not online or spelled incorrectly");
+			  			else{
+			  				$scope.privateUsersList.push(user)
+			  				flag = false;
+			  			}
+		  			}
+		  			return flag;
+		  		}
+		  		$scope.addPrivateUser = function(){
+		  			if($scope.privateUser == $scope.username){
+		  				alert("You can't send private message to youself.");
+		  				$scope.privateUser = "";
+		  			}
+		  			else{
+		  				var flag = addPrivateUserToList($scope.privateUser)
+				  		if(!flag){
+				  			$scope.openPrivateChatArea($scope.privateUser)
+				  			$scope.privateUser = "";
+				  		}
+		  			}		
+		  		}
+		  		$scope.openPrivateChatArea = function(user){
+		  			$scope.selectedPrivateUser = user;
+		  			$scope.privateChatFormArea = true;
+		  			if($scope.privateChatsByAllUser[user] != undefined)
+		  				angular.copy($scope.privateChatsByAllUser[user],$scope.privateChatByUser)
+		  		}
+		  		$scope.privateMessageForm = function(){
+		  			var data = {
+		  					"toUser":$scope.selectedPrivateUser,
+		  					"fromUser":$scope.username,
+		  					"msg":$scope.privateMessage
+		  				}
+		  			socket.emit('private chat', data);
+		  			$scope.privateChatByUser.push(data);
+		  			if($scope.privateChatsByAllUser[$scope.selectedPrivateUser] != undefined)
+		  				$scope.privateChatsByAllUser[$scope.selectedPrivateUser].push(data);
+		  			else{
+		  				var arr = []
+				  		arr.push(data)
+		  				$scope.privateChatsByAllUser[$scope.selectedPrivateUser] = arr;
+		  			}
+		  			$scope.privateMessage = ""
+		  		}
+		  		socket.on('private chat', function(data){
+		  			if($scope.selectedPrivateUser == data.fromUser){
+		  				$scope.privateChatByUser.push(data);
+		  				if($scope.privateChatsByAllUser[$scope.selectedPrivateUser] != undefined)
+			  				$scope.privateChatsByAllUser[$scope.selectedPrivateUser].push(data);
+			  			else{
+			  				var arr = []
+					  		arr.push(data)
+			  				$scope.privateChatsByAllUser[$scope.selectedPrivateUser] = arr;
+			  			}
+		  			}
+		  			else{
+		  				var flag = addPrivateUserToList(data.fromUser)
+				  		if(!flag){
+				  			if($scope.privateChatsByAllUser[data.fromUser] != undefined)
+				  				$scope.privateChatsByAllUser[data.fromUser].push(data);
+				  			else{
+				  				var arr = []
+				  				arr.push(data)
+				  				$scope.privateChatsByAllUser[data.fromUser] = arr;
+				  			}
+				  		}
+		  			}
+		  		})
+  			})
+	</script>
+</body>
+</html>
